@@ -185,7 +185,7 @@
     for (var i = 0; i < s.products.length; i++) {
       var q = s.products[i]; if (q.id === selfId) continue;
       if (q.name.toLowerCase() === name.toLowerCase()) return fail('Produk "' + q.name + '" sudah terdaftar.');
-      if (bc && q.barcode === bc) return fail('Barcode ini sudah dipakai ' + q.name + '.');
+      if (bc && q.barcode && q.barcode.replace(/^0+/, '') === bc.replace(/^0+/, '')) return fail('Barcode ini sudah dipakai ' + q.name + '.');
     }
     return { ok: true, f: { name: name, barcode: bc, category: cat, unit: unit, cost: cost, price: price, min: min } };
   }
