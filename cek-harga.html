@@ -161,17 +161,10 @@
 </main>
 </div>
 </div>
+<script src="mantou-store.js"></script>
 <script>
-// ====== Data contoh (tampilan saja, tanpa server) ======
-const CATALOG = [
-  { barcode: '089686170707',  name: 'Indomie Mi Goreng 85 g',      category: 'Mi instan',      price: 3500,  unit: 'bungkus', stock: 12, updated: '5 Juni 2026' },
-  { barcode: '8886008101053', name: 'Aqua Air Mineral 600 ml',     category: 'Minuman',        price: 4000,  unit: 'botol',   stock: 48, updated: '1 Juni 2026' },
-  { barcode: '8996001600269', name: 'Teh Botol Sosro 450 ml',      category: 'Minuman',        price: 5500,  unit: 'botol',   stock: 24, updated: '3 Juni 2026' },
-  { barcode: '8999999043311', name: 'Sunlight Jeruk Nipis 400 ml', category: 'Kebutuhan rumah', price: 9000,  unit: 'pouch',   stock: 6,  updated: '2 Juni 2026' },
-  { barcode: '8992388101012', name: 'Gula Pasir Gulaku 1 kg',      category: 'Bahan pokok',    price: 17500, unit: 'kantong', stock: 0,  updated: '29 Mei 2026' },
-  { barcode: '8993175536503', name: 'Roma Kelapa 300 g',           category: 'Biskuit',        price: 11000, unit: 'bungkus', stock: 30, updated: '4 Juni 2026' }
-];
-const LOW_STOCK = 15;
+// ====== Data produk dari penyimpanan bersama (mantou-store.js) ======
+const getCatalog = () => Mantou.get().products.map((p) => ({ id: p.id, barcode: p.barcode, name: p.name, category: p.category, price: p.price, unit: p.unit, stock: p.stock, min: p.min, updated: Mantou.fmt.longDate(p.upd) }));
 
 // ====== Util ======
 const $ = (id) => document.getElementById(id);
@@ -189,10 +182,10 @@ function findProducts(q) {
   if (!q) return [];
   const d = digits(q);
   if (/^\d{6,}$/.test(q.replace(/[\s-]/g, ''))) {
-    return CATALOG.filter((p) => digits(p.barcode) === d);
+    return getCatalog().filter((p) => p.barcode && digits(p.barcode) === d);
   }
   const low = q.toLowerCase();
-  return CATALOG.filter((p) => p.name.toLowerCase().includes(low) || p.category.toLowerCase().includes(low));
+  return getCatalog().filter((p) => p.name.toLowerCase().includes(low) || p.category.toLowerCase().includes(low));
 }
 
 // ====== Render hasil ======
@@ -218,6 +211,7 @@ function renderNotFound(q) {
       <div class="mt-5 rounded-xl bg-warn-bg p-5">
         <p class="text-[13px] font-bold text-warn">Belum terdaftar di warung ini</p>
         <p class="mt-1.5 text-[12px] leading-relaxed text-warn/90">Periksa kembali barcode atau coba pindai ulang. Jika produk memang baru, tambahkan lewat Produk &amp; stok.</p>
+        <a href="produk-stok.html?aksi=tambah&${/^\d{6,}$/.test(q.replace(/[\s-]/g, '')) ? 'barcode=' : 'nama='}${encodeURIComponent(q)}" class="mt-3 inline-block text-[12px] font-bold text-brand hover:underline">Tambah produk ini →</a>
       </div>
     </section>`;
 }
@@ -226,7 +220,7 @@ function renderFound(list) {
   const p = list[0];
   let badge = '<span class="rounded-md bg-tint px-2.5 py-1 text-[11px] font-bold text-brand">Stok aman</span>';
   if (p.stock === 0) badge = '<span class="rounded-md bg-warn-bg px-2.5 py-1 text-[11px] font-bold text-warn">Stok habis</span>';
-  else if (p.stock <= LOW_STOCK) badge = '<span class="rounded-md bg-warn-bg px-2.5 py-1 text-[11px] font-bold text-warn">Stok rendah</span>';
+  else if (p.stock < p.min) badge = '<span class="rounded-md bg-warn-bg px-2.5 py-1 text-[11px] font-bold text-warn">Stok rendah</span>';
 
   const others = list.slice(1).map((o) =>
     `<button type="button" data-pick="${esc(o.barcode)}" class="flex w-full items-center justify-between gap-3 rounded-lg border border-line px-3.5 py-2.5 text-left transition hover:border-brand">
@@ -256,7 +250,7 @@ function renderFound(list) {
 
       <div class="mt-5 flex items-center justify-between border-t border-line pt-4 text-[11px] text-muted">
         <span>Harga diperbarui ${esc(p.updated)}</span>
-        <a href="produk-stok.html" class="text-[12px] font-bold text-brand hover:underline">Lihat detail produk →</a>
+        <a href="produk-stok.html?cari=${encodeURIComponent(p.barcode || p.name)}" class="text-[12px] font-bold text-brand hover:underline">Lihat detail produk →</a>
       </div>
       ${others ? `<div class="mt-5 border-t border-line pt-4"><p class="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Hasil lain</p><div class="flex flex-col gap-2">${others}</div></div>` : ''}
     </section>`;
@@ -402,8 +396,8 @@ $('result').addEventListener('click', (e) => {
   const b = e.target.closest('[data-pick]');
   if (b) { $('q').value = b.dataset.pick; lookup(b.dataset.pick); }
 });
-$('chips').innerHTML = CATALOG.slice(0, 4).map((p) =>
-  `<button type="button" data-chip="${esc(p.barcode)}" class="rounded-full border border-line bg-surface px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-brand hover:text-brand">${esc(p.name.split(' ').slice(0, 2).join(' '))}</button>`).join('');
+$('chips').innerHTML = getCatalog().slice(0, 4).map((p) =>
+  `<button type="button" data-chip="${esc(p.barcode || p.name)}" class="rounded-full border border-line bg-surface px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-brand hover:text-brand">${esc(p.name.split(' ').slice(0, 2).join(' '))}</button>`).join('');
 $('chips').addEventListener('click', (e) => {
   const b = e.target.closest('[data-chip]');
   if (!b) return;
@@ -414,6 +408,8 @@ window.addEventListener('pagehide', stopCamera);
 
 setUi('idle');
 renderEmpty();
+const preQ = new URLSearchParams(location.search).get('q');
+if (preQ) { $('q').value = preQ; lookup(preQ); }
 </script>
 <nav id="bottomNav" class="fixed inset-x-0 bottom-0 z-40 flex overflow-x-auto border-t border-line bg-surface/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur [scrollbar-width:none] lg:hidden" aria-label="Menu"><a href="index.html" class="flex min-w-[68px] shrink-0 flex-col items-center gap-1 px-1 pb-1 pt-2 text-[10px] font-medium text-muted"><span class="grid h-7 w-12 place-items-center rounded-full transition text-muted"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></svg></span><span class="whitespace-nowrap">Ringkasan</span></a><a href="cek-harga.html" aria-current="page" class="flex min-w-[68px] shrink-0 flex-col items-center gap-1 px-1 pb-1 pt-2 text-[10px] font-bold text-brand"><span class="grid h-7 w-12 place-items-center rounded-full transition bg-tint text-brand"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a1 1 0 011-1h2M21 7V5a1 1 0 00-1-1h-2M3 17v2a1 1 0 001 1h2M21 17v2a1 1 0 01-1 1h-2"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/></svg></span><span class="whitespace-nowrap">Cek harga</span></a><a href="produk-stok.html" class="flex min-w-[68px] shrink-0 flex-col items-center gap-1 px-1 pb-1 pt-2 text-[10px] font-medium text-muted"><span class="grid h-7 w-12 place-items-center rounded-full transition text-muted"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></span><span class="whitespace-nowrap">Produk</span></a><a href="catatan-transaksi.html" class="flex min-w-[68px] shrink-0 flex-col items-center gap-1 px-1 pb-1 pt-2 text-[10px] font-medium text-muted"><span class="grid h-7 w-12 place-items-center rounded-full transition text-muted"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6a2 2 0 012-2h8l4 4v11a1 1 0 01-1 1H7a2 2 0 01-2-2V6z"/><path d="M9 13h6M9 17h4"/></svg></span><span class="whitespace-nowrap">Transaksi</span></a><a href="laporan-keuangan.html" class="flex min-w-[68px] shrink-0 flex-col items-center gap-1 px-1 pb-1 pt-2 text-[10px] font-medium text-muted"><span class="grid h-7 w-12 place-items-center rounded-full transition text-muted"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><path d="M5 16l4-4 3 3 6-7"/></svg></span><span class="whitespace-nowrap">Laporan</span></a><a href="analisis-harga.html" class="flex min-w-[68px] shrink-0 flex-col items-center gap-1 px-1 pb-1 pt-2 text-[10px] font-medium text-muted"><span class="grid h-7 w-12 place-items-center rounded-full transition text-muted"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M8.5 8h7M8.5 12h2M13.5 12h2M8.5 16h2M13.5 16h2"/></svg></span><span class="whitespace-nowrap">Harga</span></a><a href="analisis-stok-penjualan.html" class="flex min-w-[68px] shrink-0 flex-col items-center gap-1 px-1 pb-1 pt-2 text-[10px] font-medium text-muted"><span class="grid h-7 w-12 place-items-center rounded-full transition text-muted"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16M8 20v-8M12 20V6M16 20v-5"/></svg></span><span class="whitespace-nowrap">Penjualan</span></a><a href="rekomendasi-diskon.html" class="flex min-w-[68px] shrink-0 flex-col items-center gap-1 px-1 pb-1 pt-2 text-[10px] font-medium text-muted"><span class="grid h-7 w-12 place-items-center rounded-full transition text-muted"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9 15l6-6"/><circle cx="9.5" cy="9.5" r=".8"/><circle cx="14.5" cy="14.5" r=".8"/></svg></span><span class="whitespace-nowrap">Diskon</span></a></nav>
 <script>(function(){var n=document.getElementById("bottomNav");if(!n)return;var a=n.querySelector("[aria-current]");if(a)n.scrollLeft=a.offsetLeft-(n.clientWidth-a.offsetWidth)/2;})();</script>

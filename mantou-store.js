@@ -94,7 +94,8 @@
     exps.forEach(function (e, i) {
       tx.push({ id: 'BK-' + pad(i + 1, 4), type: 'expense', ts: e.ts, by: OWNER, category: e.ex.category, desc: e.ex.desc, amount: e.ex.amount, note: '' });
     });
-    return { v: 1, products: prods, tx: tx, seq: { CT: sales.length, BK: exps.length } };
+    prods.forEach(function (p) { p.upd = now; });
+    return { v: 1, products: prods, tx: tx, moves: [], seq: { CT: sales.length, BK: exps.length, P: prods.length, ST: 0 } };
   }
 
   /* ---------- penyimpanan ---------- */
@@ -107,6 +108,13 @@
       // data lama (tanpa batas minimum stok) dilengkapi dari daftar produk bawaan
       var dirty = false;
       s.products.forEach(function (p) { if (typeof p.min !== 'number') { var d = find(PRODUCTS, p.id); p.min = d ? d.min : 10; dirty = true; } });
+      s.products.forEach(function (p) { if (!p.upd) { p.upd = Date.now(); dirty = true; } });
+      if (!s.moves) { s.moves = []; dirty = true; }
+      if (!s.seq.ST || !s.seq.P) {
+        s.seq.ST = s.seq.ST || s.moves.length;
+        s.seq.P = s.seq.P || s.products.reduce(function (m, p) { return Math.max(m, parseInt(String(p.id).slice(1), 10) || 0); }, 0);
+        dirty = true;
+      }
       if (dirty) save(s);
       cache = s; return s;
     }
@@ -158,8 +166,102 @@
     return { ok: true };
   }
 
+
+  /* ---------- produk & stok ---------- */
+  function status(p) { return p.stock <= 0 ? 'habis' : p.stock < p.min ? 'rendah' : 'cukup'; }
+  function int(v) { v = Number(v); return v >= 0 && v === Math.floor(v) ? v : NaN; }
+
+  function cleanProduct(s, d, selfId) {
+    var name = String(d.name || '').trim(), bc = String(d.barcode || '').replace(/\s/g, ''),
+        cat = String(d.category || '').trim(), unit = String(d.unit || '').trim(),
+        cost = int(d.cost), price = int(d.price), min = int(d.min);
+    if (!name) return fail('Nama produk wajib diisi.');
+    if (bc && !/^\d{6,}$/.test(bc)) return fail('Barcode hanya berisi angka, minimal 6 digit.');
+    if (!cat) return fail('Kategori wajib diisi.');
+    if (!unit) return fail('Satuan wajib diisi (misalnya bungkus, botol).');
+    if (isNaN(cost)) return fail('Biaya perolehan harus berupa angka bulat, minimal 0.');
+    if (!(price >= 1)) return fail('Harga jual harus diisi, minimal Rp1.');
+    if (isNaN(min)) return fail('Batas minimum stok harus berupa angka bulat, minimal 0.');
+    for (var i = 0; i < s.products.length; i++) {
+      var q = s.products[i]; if (q.id === selfId) continue;
+      if (q.name.toLowerCase() === name.toLowerCase()) return fail('Produk "' + q.name + '" sudah terdaftar.');
+      if (bc && q.barcode === bc) return fail('Barcode ini sudah dipakai ' + q.name + '.');
+    }
+    return { ok: true, f: { name: name, barcode: bc, category: cat, unit: unit, cost: cost, price: price, min: min } };
+  }
+  function addMove(s, m) {
+    s.seq.ST += 1; m.id = 'ST-' + pad(s.seq.ST, 4); m.by = OWNER; s.moves.push(m); return m;
+  }
+
+  function addProduct(inp) {
+    var s = get(), c = cleanProduct(s, inp, null), st = int(inp.stock);
+    if (!c.ok) return c;
+    if (isNaN(st)) return fail('Stok awal harus berupa angka bulat, minimal 0.');
+    s.seq.P += 1;
+    var p = c.f; p.id = 'p' + s.seq.P; p.stock = st; p.upd = Date.now();
+    s.products.push(p);
+    if (st > 0) addMove(s, { type: 'in', pid: p.id, name: p.name, qty: st, before: 0, after: st, ts: Date.now(), note: 'Stok awal' });
+    save(s); return { ok: true, product: p };
+  }
+  function updateProduct(id, inp) {
+    var s = get(), p = find(s.products, id), c;
+    if (!p) return fail('Produk tidak ditemukan.');
+    c = cleanProduct(s, inp, id); if (!c.ok) return c;
+    var priceChanged = p.price !== c.f.price || p.cost !== c.f.cost;
+    for (var k in c.f) p[k] = c.f[k];
+    if (priceChanged) p.upd = Date.now();
+    save(s); return { ok: true, product: p };
+  }
+  function removeProduct(id) {
+    var s = get(), i;
+    for (i = 0; i < s.products.length; i++) if (s.products[i].id === id) break;
+    if (i === s.products.length) return fail('Produk tidak ditemukan.');
+    s.products.splice(i, 1); save(s); return { ok: true };
+  }
+  function addStockIn(inp) {
+    var s = get(), p = find(s.products, inp.pid), qty = Number(inp.qty), cost = inp.cost === '' || inp.cost == null ? null : int(inp.cost);
+    if (!p) return fail('Pilih produk yang barangnya masuk.');
+    if (!(inp.ts > 0)) return fail('Tanggal & waktu belum valid.');
+    if (!(qty >= 1) || qty !== Math.floor(qty)) return fail('Jumlah barang masuk minimal 1.');
+    if (cost !== null && isNaN(cost)) return fail('Biaya perolehan baru harus berupa angka bulat.');
+    var before = p.stock; p.stock += qty;
+    if (cost !== null && cost !== p.cost) { p.cost = cost; p.upd = Date.now(); }
+    var m = addMove(s, { type: 'in', pid: p.id, name: p.name, qty: qty, before: before, after: p.stock, ts: inp.ts, note: inp.note || '' });
+    save(s); return { ok: true, move: m, product: p };
+  }
+  function adjustStock(inp) {
+    var s = get(), p = find(s.products, inp.pid), n = int(inp.counted);
+    if (!p) return fail('Pilih produk yang stoknya disesuaikan.');
+    if (!(inp.ts > 0)) return fail('Tanggal & waktu belum valid.');
+    if (isNaN(n)) return fail('Isi jumlah stok fisik (angka bulat, minimal 0).');
+    if (n === p.stock) return fail('Stok fisik sama dengan stok tercatat; tidak ada yang perlu disesuaikan.');
+    if (!String(inp.note || '').trim()) return fail('Isi alasan penyesuaian (misalnya rusak, hilang, salah hitung).');
+    var before = p.stock; p.stock = n;
+    var m = addMove(s, { type: 'adj', pid: p.id, name: p.name, qty: n - before, before: before, after: n, ts: inp.ts, note: inp.note.trim() });
+    save(s); return { ok: true, move: m, product: p };
+  }
+  function voidMove(id) {
+    var s = get(), i, m, p;
+    for (i = 0; i < s.moves.length; i++) if (s.moves[i].id === id) break;
+    if (i === s.moves.length) return fail('Catatan stok tidak ditemukan.');
+    m = s.moves[i]; p = find(s.products, m.pid);
+    if (p) {
+      if (p.stock - m.qty < 0) return fail('Tidak bisa dibatalkan: stok ' + p.name + ' akan menjadi negatif.');
+      p.stock -= m.qty;
+    }
+    s.moves.splice(i, 1); save(s); return { ok: true };
+  }
+  function soldUnits(from, to) {
+    var out = {};
+    get().tx.forEach(function (t) {
+      if (t.type !== 'sale' || t.ts < from || t.ts > to) return;
+      t.items.forEach(function (it) { out[it.pid] = (out[it.pid] || 0) + it.qty; });
+    });
+    return out;
+  }
+
   function reset() { cache = null; try { g.localStorage.removeItem(KEY); } catch (e) {} get(); }
-  function clear() { var s = { v: 1, products: clone(PRODUCTS), tx: [], seq: { CT: 0, BK: 0 } }; save(s); }
+  function clear() { var s = { v: 1, products: clone(PRODUCTS), tx: [], moves: [], seq: { CT: 0, BK: 0, P: PRODUCTS.length, ST: 0 } }; s.products.forEach(function (p) { p.upd = Date.now(); }); save(s); }
 
   function shortName(n) { return String(n).split(' ')[0]; }
   function summary(tx) {
@@ -178,6 +280,7 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setHeaderDate); else setHeaderDate();
 
-  g.Mantou = { get: get, find: find, addSale: addSale, addExpense: addExpense, voidTx: voidTx, reset: reset, clear: clear,
+  g.Mantou = { get: get, find: find, status: status, addProduct: addProduct, updateProduct: updateProduct, removeProduct: removeProduct,
+               addStockIn: addStockIn, adjustStock: adjustStock, voidMove: voidMove, soldUnits: soldUnits, addSale: addSale, addExpense: addExpense, voidTx: voidTx, reset: reset, clear: clear,
                summary: summary, shortName: shortName, onChange: onChange, fmt: fmt };
 })(window);
