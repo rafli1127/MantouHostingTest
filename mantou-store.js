@@ -207,8 +207,9 @@
     var s = get(), p = find(s.products, id), c;
     if (!p) return fail('Produk tidak ditemukan.');
     c = cleanProduct(s, inp, id); if (!c.ok) return c;
-    var priceChanged = p.price !== c.f.price || p.cost !== c.f.cost;
+    var oldPrice = p.price, priceChanged = p.price !== c.f.price || p.cost !== c.f.cost;
     for (var k in c.f) p[k] = c.f[k];
+    if (p.promo && c.f.price !== oldPrice) delete p.promo;
     if (priceChanged) p.upd = Date.now();
     save(s); return { ok: true, product: p };
   }
@@ -260,6 +261,62 @@
     return out;
   }
 
+  /* ---------- analisis (dipakai analisis-stok, rekomendasi-diskon, analisis-harga) ---------- */
+  function range(p) {
+    var n = new Date(), y = n.getFullYear(), m = n.getMonth(), d = n.getDate();
+    var days = p === '14' ? 14 : p === '30' ? 30 : p === 'month' ? d : 7;
+    var f = new Date(y, m, d - days + 1), from = f.getTime(), to = new Date(y, m, d + 1).getTime() - 1;
+    var label = f.getMonth() === m ? f.getDate() + '–' + d + ' ' + MONL[m] + ' ' + y
+      : f.getDate() + ' ' + MON[f.getMonth()] + ' – ' + d + ' ' + MON[m] + ' ' + y;
+    return { key: p, from: from, to: to, days: days, label: label };
+  }
+  // cover = berapa hari stok cukup dengan laju jual periode itu; lambat = stok di atas minimum tapi cukup > coverDays hari
+  function analyze(r, coverDays) {
+    var sold = soldUnits(r.from, r.to), s = get(), DAY = 86400000, first = Infinity;
+    s.tx.forEach(function (t) { if (t.type === 'sale' && t.ts < first) first = t.ts; });
+    // hari efektif: tidak lebih lama dari riwayat penjualan yang ada, supaya laju jual tidak "encer"
+    var eff = first === Infinity ? r.days : Math.max(1, Math.min(r.days, Math.round((fmt.parseDate(fmt.dateInput(r.to)) - fmt.parseDate(fmt.dateInput(Math.max(r.from, first)))) / DAY) + 1));
+    var list = s.products.map(function (p) {
+      var u = sold[p.id] || 0, rate = u / eff;
+      return { p: p, sold: u, rate: rate, days: eff, cover: rate > 0 ? p.stock / rate : (p.stock > 0 ? Infinity : 0), move: 'normal' };
+    });
+    var fast = list.filter(function (x) { return x.sold > 0; }).sort(function (a, b) { return b.sold - a.sold; }).slice(0, 3);
+    list.forEach(function (x) {
+      if (x.p.stock > 0 && x.p.stock >= x.p.min && x.cover > coverDays) x.move = 'lambat';
+      else if (fast.indexOf(x) > -1) x.move = 'cepat';
+    });
+    return list;
+  }
+  // usulan diskon ≈ 40% dari margin kotor (5–15%); 0 bila margin terlalu tipis
+  function suggestDiscount(p) {
+    var mg = p.price > 0 ? (p.price - p.cost) / p.price * 100 : 0;
+    if (mg < 8) return 0;
+    return Math.max(5, Math.min(15, Math.round(mg * 0.4)));
+  }
+  function discounted(price, pct) { return Math.round(price * (1 - pct / 100) / 100) * 100; }
+  function applyPrice(id, price, pct) {
+    var s = get(), p = find(s.products, id); price = Math.round(Number(price));
+    if (!p) return fail('Produk tidak ditemukan.');
+    if (!(price >= 1)) return fail('Harga tidak valid.');
+    if (pct) p.promo = { base: p.promo ? p.promo.base : p.price, pct: pct, ts: Date.now() }; else delete p.promo;
+    p.price = price; p.upd = Date.now(); save(s); return { ok: true, product: p };
+  }
+  function revertPromo(id) {
+    var s = get(), p = find(s.products, id);
+    if (!p || !p.promo) return fail('Tidak ada diskon aktif pada produk ini.');
+    p.price = p.promo.base; delete p.promo; p.upd = Date.now(); save(s); return { ok: true, product: p };
+  }
+  // biaya tambahan per unit yang disarankan dari pengeluaran angkut & kemasan 7 hari terakhir
+  function extraCostHint() {
+    var r = range('7'), s = get(), tot = 0, units = 0, k;
+    s.tx.forEach(function (t) {
+      if (t.ts < r.from || t.ts > r.to) return;
+      if (t.type === 'expense' && /angkut|kemasan/i.test(t.category)) tot += t.amount;
+      if (t.type === 'sale') units += t.units;
+    });
+    return { total: tot, units: units, perUnit: units ? Math.round(tot / units / 10) * 10 : 0 };
+  }
+
   function reset() { cache = null; try { g.localStorage.removeItem(KEY); } catch (e) {} get(); }
   function clear() { var s = { v: 1, products: clone(PRODUCTS), tx: [], moves: [], seq: { CT: 0, BK: 0, P: PRODUCTS.length, ST: 0 } }; s.products.forEach(function (p) { p.upd = Date.now(); }); save(s); }
 
@@ -281,6 +338,6 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setHeaderDate); else setHeaderDate();
 
   g.Mantou = { get: get, find: find, status: status, addProduct: addProduct, updateProduct: updateProduct, removeProduct: removeProduct,
-               addStockIn: addStockIn, adjustStock: adjustStock, voidMove: voidMove, soldUnits: soldUnits, addSale: addSale, addExpense: addExpense, voidTx: voidTx, reset: reset, clear: clear,
+               addStockIn: addStockIn, adjustStock: adjustStock, voidMove: voidMove, soldUnits: soldUnits, range: range, analyze: analyze, suggestDiscount: suggestDiscount, discounted: discounted, applyPrice: applyPrice, revertPromo: revertPromo, extraCostHint: extraCostHint, addSale: addSale, addExpense: addExpense, voidTx: voidTx, reset: reset, clear: clear,
                summary: summary, shortName: shortName, onChange: onChange, fmt: fmt };
 })(window);
