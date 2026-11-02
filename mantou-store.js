@@ -8,14 +8,14 @@
   var DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
   var PRODUCTS = [
-    { id: 'p1', name: 'Indomie Mi Goreng 85 g',       barcode: '089686170707',  category: 'Mi instan', unit: 'bungkus', cost: 2800,  price: 3500,  stock: 12 },
-    { id: 'p2', name: 'AQUA Air Mineral 600 ml',       barcode: '8886008101053', category: 'Minuman',   unit: 'botol',   cost: 2500,  price: 3500,  stock: 18 },
-    { id: 'p3', name: 'Beras Ramos 5 kg',              barcode: '200000000003',  category: 'Sembako',   unit: 'kantong', cost: 62000, price: 69000, stock: 6 },
-    { id: 'p4', name: 'Minyakita 1 L',                 barcode: '8997212800011', category: 'Sembako',   unit: 'botol',   cost: 14500, price: 17000, stock: 16 },
-    { id: 'p5', name: 'Gulaku Gula Pasir 1 kg',        barcode: '8995176101016', category: 'Sembako',   unit: 'kantong', cost: 15500, price: 18000, stock: 22 },
-    { id: 'p6', name: 'Sariwangi Teh Asli 25 kantong', barcode: '8999999197019', category: 'Minuman',   unit: 'kotak',   cost: 6000,  price: 8000,  stock: 42 },
-    { id: 'p7', name: 'Roma Kelapa 300 g',             barcode: '8996001301011', category: 'Camilan',   unit: 'bungkus', cost: 8000,  price: 10000, stock: 36 },
-    { id: 'p8', name: 'Marjan Cocopandan 460 ml',      barcode: '8992802101019', category: 'Minuman',   unit: 'botol',   cost: 18000, price: 25000, stock: 20 }
+    { id: 'p1', name: 'Indomie Mi Goreng 85 g',       barcode: '089686170707',  category: 'Mi instan', unit: 'bungkus', cost: 2800,  price: 3500,  stock: 12, min: 20 },
+    { id: 'p2', name: 'AQUA Air Mineral 600 ml',       barcode: '8886008101053', category: 'Minuman',   unit: 'botol',   cost: 2500,  price: 3500,  stock: 18, min: 24 },
+    { id: 'p3', name: 'Beras Ramos 5 kg',              barcode: '200000000003',  category: 'Sembako',   unit: 'kantong', cost: 62000, price: 69000, stock: 6, min: 8 },
+    { id: 'p4', name: 'Minyakita 1 L',                 barcode: '8997212800011', category: 'Sembako',   unit: 'botol',   cost: 14500, price: 17000, stock: 16, min: 10 },
+    { id: 'p5', name: 'Gulaku Gula Pasir 1 kg',        barcode: '8995176101016', category: 'Sembako',   unit: 'kantong', cost: 15500, price: 18000, stock: 22, min: 10 },
+    { id: 'p6', name: 'Sariwangi Teh Asli 25 kantong', barcode: '8999999197019', category: 'Minuman',   unit: 'kotak',   cost: 6000,  price: 8000,  stock: 42, min: 15 },
+    { id: 'p7', name: 'Roma Kelapa 300 g',             barcode: '8996001301011', category: 'Camilan',   unit: 'bungkus', cost: 8000,  price: 10000, stock: 36, min: 15 },
+    { id: 'p8', name: 'Marjan Cocopandan 460 ml',      barcode: '8992802101019', category: 'Minuman',   unit: 'botol',   cost: 18000, price: 25000, stock: 20, min: 10 }
   ];
   var EXPENSES = [
     { category: 'Ongkos angkut',     desc: 'Ongkos angkut',        amount: 45000 },
@@ -103,7 +103,13 @@
   function save(s) { cache = s; try { g.localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
   function get() {
     var s = read();
-    if (s && s.tx && s.products) { cache = s; return s; }
+    if (s && s.tx && s.products) {
+      // data lama (tanpa batas minimum stok) dilengkapi dari daftar produk bawaan
+      var dirty = false;
+      s.products.forEach(function (p) { if (typeof p.min !== 'number') { var d = find(PRODUCTS, p.id); p.min = d ? d.min : 10; dirty = true; } });
+      if (dirty) save(s);
+      cache = s; return s;
+    }
     if (cache) return cache;
     cache = seed(); save(cache); return cache;
   }
