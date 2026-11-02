@@ -25,6 +25,11 @@
     --color-warn: #9a6a1f;
   }
 </style>
+<style>
+  @keyframes scan-sweep { 0%,100% { top: 8%; } 50% { top: 92%; } }
+  .scanning #scanLine { top: 8%; height: 2px; animation: scan-sweep 2s ease-in-out infinite; box-shadow: 0 0 10px 1px #e8f0e8; }
+  @media (prefers-reduced-motion: reduce) { .scanning #scanLine { animation: none; top: 50%; } }
+</style>
 </head>
 <body class="min-h-screen bg-canvas font-sans text-ink antialiased">
 <div class="flex min-h-screen">
@@ -96,24 +101,33 @@
   <section class="rounded-2xl border border-line bg-surface p-6">
     <div class="flex items-start justify-between">
       <div><h2 class="text-[20px] font-extrabold">Pindai barcode</h2><p class="mt-1 text-[12px] text-muted">Arahkan barcode kemasan ke dalam bingkai.</p></div>
-      <span class="rounded-md bg-tint px-2.5 py-1 text-[11px] font-bold text-brand">Kamera aktif</span>
+      <span id="camBadge" class="rounded-md bg-line/70 px-2.5 py-1 text-[11px] font-bold text-muted">Kamera mati</span>
     </div>
 
-    <div class="relative mt-5 aspect-[567/299] overflow-hidden rounded-xl bg-brand-dark">
-      <img src="img/camera.jpg" alt="Barcode kemasan mi instan di dalam bingkai kamera" class="size-full object-cover">
-      <div class="absolute inset-x-[14%] inset-y-[24%]" aria-hidden="true">
+    <div id="viewfinder" class="relative mt-5 aspect-[567/299] overflow-hidden rounded-xl bg-brand-dark">
+      <img id="camIdle" src="img/camera.jpg" alt="" onerror="this.style.display='none'" class="size-full object-cover">
+      <video id="camVideo" class="absolute inset-0 hidden size-full object-cover" playsinline muted autoplay></video>
+      <canvas id="camSnap" class="absolute inset-0 hidden size-full object-cover"></canvas>
+      <div id="camShade" class="absolute inset-0 bg-brand-dark/55"></div>
+
+      <div id="camFrame" class="absolute inset-x-[14%] inset-y-[24%] hidden" aria-hidden="true">
         <span class="absolute left-0 top-0 size-7 rounded-tl-md border-l-[3px] border-t-[3px] border-tint"></span>
         <span class="absolute right-0 top-0 size-7 rounded-tr-md border-r-[3px] border-t-[3px] border-tint"></span>
         <span class="absolute bottom-0 left-0 size-7 rounded-bl-md border-b-[3px] border-l-[3px] border-tint"></span>
         <span class="absolute bottom-0 right-0 size-7 rounded-br-md border-b-[3px] border-r-[3px] border-tint"></span>
-        <span class="absolute inset-x-0 top-1/2 h-px bg-tint"></span>
+        <span id="scanLine" class="absolute inset-x-0 top-1/2 h-px bg-tint"></span>
       </div>
-      <span class="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-brand-dark/90 px-4 py-2 text-[12px] font-bold text-white"><svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Barcode berhasil dibaca</span>
+
+      <div id="camStart" class="absolute inset-0 grid place-items-center">
+        <button type="button" id="camStartBtn" class="inline-flex items-center gap-2 rounded-full bg-surface px-5 py-2.5 text-[13px] font-bold text-brand shadow-sm transition hover:bg-tint"><svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3"/><path d="M8 12h8"/></svg>Aktifkan kamera</button>
+      </div>
+
+      <span id="camStatus" class="absolute bottom-3 left-1/2 hidden max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-full bg-brand-dark/90 px-4 py-2 text-[12px] font-bold text-white"></span>
     </div>
 
     <div class="mt-4 flex items-center justify-between gap-3">
-      <p class="text-[11px] text-muted">Kamera perangkat · izin diberikan</p>
-      <button type="button" class="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-2 text-[13px] font-bold transition hover:border-brand"><svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3"/><path d="M8 12h8"/></svg>Pindai lagi</button>
+      <p id="camNote" class="text-[11px] text-muted">Kamera belum diaktifkan</p>
+      <button type="button" id="scanBtn" class="inline-flex shrink-0 items-center gap-2 rounded-lg border border-line bg-surface px-4 py-2 text-[13px] font-bold transition hover:border-brand"><svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5a1 1 0 011-1h3M16 4h3a1 1 0 011 1v3M20 16v3a1 1 0 01-1 1h-3M8 20H5a1 1 0 01-1-1v-3"/><path d="M8 12h8"/></svg><span id="scanBtnText">Mulai pindai</span></button>
     </div>
 
     <div class="my-5 flex items-center gap-3 text-[11px] text-muted"><span class="h-px flex-1 bg-line"></span>atau cari secara manual<span class="h-px flex-1 bg-line"></span></div>
@@ -122,38 +136,18 @@
     <div class="mt-2.5 flex gap-3">
       <div class="flex flex-1 items-center gap-3 rounded-lg border border-line bg-surface px-3.5 focus-within:border-brand">
         <span class="text-muted"><svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a1 1 0 011-1h2M21 7V5a1 1 0 00-1-1h-2M3 17v2a1 1 0 001 1h2M21 17v2a1 1 0 01-1 1h-2"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/></svg></span>
-        <input id="q" type="text" value="089686170707" class="w-full bg-transparent py-3 text-[14px] outline-none">
+        <input id="q" type="text" inputmode="search" autocomplete="off" placeholder="Contoh: 089686170707 atau Indomie" class="w-full bg-transparent py-3 text-[14px] outline-none">
       </div>
-      <button type="button" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 text-[13px] font-bold text-white transition hover:bg-brand-dark"><svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>Cari</button>
+      <button type="button" id="searchBtn" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 text-[13px] font-bold text-white transition hover:bg-brand-dark"><svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>Cari</button>
+    </div>
+    <div class="mt-3.5 flex flex-wrap items-center gap-2">
+      <span class="text-[11px] text-muted">Coba contoh:</span>
+      <span id="chips" class="flex flex-wrap gap-2"></span>
     </div>
   </section>
 
   <div class="flex flex-col gap-5">
-    <section class="rounded-2xl border border-line bg-surface p-6">
-      <div class="flex items-center justify-between">
-        <p class="flex items-center gap-2.5 text-[14px] font-bold text-brand"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>Produk ditemukan</p>
-        <span class="text-[11px] text-muted">16.42 WIB</span>
-      </div>
-      <p class="mt-5 text-[11px] font-semibold uppercase tracking-wide text-muted">Mi instan</p>
-      <h2 class="mt-2 text-[26px] font-extrabold leading-tight tracking-tight">Indomie Mi Goreng 85 g</h2>
-      <p class="mt-3 text-[12px] text-muted">Barcode: 089686170707</p>
-
-      <div class="mt-5 rounded-xl bg-tint p-6">
-        <p class="text-[12px] text-brand">Harga jual per bungkus</p>
-        <p class="mt-2 text-[48px] font-extrabold leading-none tracking-tight text-brand">Rp3.500</p>
-        <p class="mt-3 text-[11px] text-muted">Harga yang ditetapkan pemilik warung</p>
-      </div>
-
-      <div class="mt-5 flex items-end justify-between">
-        <div><p class="text-[11px] text-muted">Sisa stok tercatat</p><p class="mt-1 text-[18px] font-extrabold">12 bungkus</p></div>
-        <span class="rounded-md bg-warn-bg px-2.5 py-1 text-[11px] font-bold text-warn">Stok rendah</span>
-      </div>
-
-      <div class="mt-5 flex items-center justify-between border-t border-line pt-4 text-[11px] text-muted">
-        <span>Harga diperbarui 5 Juni 2026</span>
-        <a href="produk-stok.html" class="text-[12px] font-bold text-brand hover:underline">Lihat detail produk →</a>
-      </div>
-    </section>
+    <div id="result" aria-live="polite"></div>
 
     <section class="rounded-2xl border border-line bg-surface p-6">
       <h2 class="text-[18px] font-extrabold">Produk belum terdaftar?</h2>
@@ -168,5 +162,259 @@
 </main>
 </div>
 </div>
+<script>
+// ====== Data contoh (tampilan saja, tanpa server) ======
+const CATALOG = [
+  { barcode: '089686170707',  name: 'Indomie Mi Goreng 85 g',      category: 'Mi instan',      price: 3500,  unit: 'bungkus', stock: 12, updated: '5 Juni 2026' },
+  { barcode: '8886008101053', name: 'Aqua Air Mineral 600 ml',     category: 'Minuman',        price: 4000,  unit: 'botol',   stock: 48, updated: '1 Juni 2026' },
+  { barcode: '8996001600269', name: 'Teh Botol Sosro 450 ml',      category: 'Minuman',        price: 5500,  unit: 'botol',   stock: 24, updated: '3 Juni 2026' },
+  { barcode: '8999999043311', name: 'Sunlight Jeruk Nipis 400 ml', category: 'Kebutuhan rumah', price: 9000,  unit: 'pouch',   stock: 6,  updated: '2 Juni 2026' },
+  { barcode: '8992388101012', name: 'Gula Pasir Gulaku 1 kg',      category: 'Bahan pokok',    price: 17500, unit: 'kantong', stock: 0,  updated: '29 Mei 2026' },
+  { barcode: '8993175536503', name: 'Roma Kelapa 300 g',           category: 'Biskuit',        price: 11000, unit: 'bungkus', stock: 30, updated: '4 Juni 2026' }
+];
+const LOW_STOCK = 15;
+
+// ====== Util ======
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const rupiah = (n) => 'Rp' + Number(n).toLocaleString('id-ID');
+const nowWib = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + '.' + String(d.getMinutes()).padStart(2, '0') + ' WIB'; };
+const digits = (s) => String(s).replace(/\D/g, '').replace(/^0+/, '');
+
+const ICON_OK = '<svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const ICON_WARN = '<svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>';
+
+// ====== Pencarian ======
+function findProducts(q) {
+  q = q.trim();
+  if (!q) return [];
+  const d = digits(q);
+  if (/^\d{6,}$/.test(q.replace(/[\s-]/g, ''))) {
+    return CATALOG.filter((p) => digits(p.barcode) === d);
+  }
+  const low = q.toLowerCase();
+  return CATALOG.filter((p) => p.name.toLowerCase().includes(low) || p.category.toLowerCase().includes(low));
+}
+
+// ====== Render hasil ======
+const SHELL = 'rounded-2xl border border-line bg-surface p-6';
+
+function renderEmpty() {
+  $('result').innerHTML = `
+    <section class="${SHELL}">
+      <p class="flex items-center gap-2.5 text-[14px] font-bold text-muted">${ICON_WARN.replace('M12 8v5M12 16.5v.5', 'M12 8v5M12 16.5v.5')}Belum ada produk dipindai</p>
+      <p class="mt-3 text-[12px] leading-relaxed text-muted">Pindai barcode dengan kamera atau ketik barcode / nama produk di kolom pencarian. Harga akan tampil di sini.</p>
+    </section>`;
+}
+
+function renderNotFound(q) {
+  $('result').innerHTML = `
+    <section class="${SHELL}">
+      <div class="flex items-center justify-between">
+        <p class="flex items-center gap-2.5 text-[14px] font-bold text-warn">${ICON_WARN}Produk tidak ditemukan</p>
+        <span class="text-[11px] text-muted">${nowWib()}</span>
+      </div>
+      <p class="mt-5 text-[11px] font-semibold uppercase tracking-wide text-muted">Yang dicari</p>
+      <p class="mt-2 break-all text-[22px] font-extrabold leading-tight tracking-tight">${esc(q)}</p>
+      <div class="mt-5 rounded-xl bg-warn-bg p-5">
+        <p class="text-[13px] font-bold text-warn">Belum terdaftar di warung ini</p>
+        <p class="mt-1.5 text-[12px] leading-relaxed text-warn/90">Periksa kembali barcode atau coba pindai ulang. Jika produk memang baru, tambahkan lewat Produk &amp; stok.</p>
+      </div>
+    </section>`;
+}
+
+function renderFound(list) {
+  const p = list[0];
+  let badge = '<span class="rounded-md bg-tint px-2.5 py-1 text-[11px] font-bold text-brand">Stok aman</span>';
+  if (p.stock === 0) badge = '<span class="rounded-md bg-warn-bg px-2.5 py-1 text-[11px] font-bold text-warn">Stok habis</span>';
+  else if (p.stock <= LOW_STOCK) badge = '<span class="rounded-md bg-warn-bg px-2.5 py-1 text-[11px] font-bold text-warn">Stok rendah</span>';
+
+  const others = list.slice(1).map((o) =>
+    `<button type="button" data-pick="${esc(o.barcode)}" class="flex w-full items-center justify-between gap-3 rounded-lg border border-line px-3.5 py-2.5 text-left transition hover:border-brand">
+       <span class="text-[12px] font-bold">${esc(o.name)}</span><span class="text-[12px] font-bold text-brand">${rupiah(o.price)}</span>
+     </button>`).join('');
+
+  $('result').innerHTML = `
+    <section class="${SHELL}">
+      <div class="flex items-center justify-between">
+        <p class="flex items-center gap-2.5 text-[14px] font-bold text-brand"><svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg>Produk ditemukan</p>
+        <span class="text-[11px] text-muted">${nowWib()}</span>
+      </div>
+      <p class="mt-5 text-[11px] font-semibold uppercase tracking-wide text-muted">${esc(p.category)}</p>
+      <h2 class="mt-2 text-[26px] font-extrabold leading-tight tracking-tight">${esc(p.name)}</h2>
+      <p class="mt-3 text-[12px] text-muted">Barcode: ${esc(p.barcode)}</p>
+
+      <div class="mt-5 rounded-xl bg-tint p-6">
+        <p class="text-[12px] text-brand">Harga jual per ${esc(p.unit)}</p>
+        <p class="mt-2 text-[48px] font-extrabold leading-none tracking-tight text-brand">${rupiah(p.price)}</p>
+        <p class="mt-3 text-[11px] text-muted">Harga yang ditetapkan pemilik warung</p>
+      </div>
+
+      <div class="mt-5 flex items-end justify-between">
+        <div><p class="text-[11px] text-muted">Sisa stok tercatat</p><p class="mt-1 text-[18px] font-extrabold">${p.stock} ${esc(p.unit)}</p></div>
+        ${badge}
+      </div>
+
+      <div class="mt-5 flex items-center justify-between border-t border-line pt-4 text-[11px] text-muted">
+        <span>Harga diperbarui ${esc(p.updated)}</span>
+        <a href="produk-stok.html" class="text-[12px] font-bold text-brand hover:underline">Lihat detail produk →</a>
+      </div>
+      ${others ? `<div class="mt-5 border-t border-line pt-4"><p class="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted">Hasil lain</p><div class="flex flex-col gap-2">${others}</div></div>` : ''}
+    </section>`;
+}
+
+function lookup(q) {
+  q = (q || '').trim();
+  if (!q) { renderEmpty(); return; }
+  const list = findProducts(q);
+  list.length ? renderFound(list) : renderNotFound(q);
+}
+
+// ====== Kamera & pemindai ======
+const video = $('camVideo'), snap = $('camSnap'), idle = $('camIdle');
+let stream = null, timer = null, zx = null, scanning = false;
+
+function setStatus(html, show = true) {
+  const el = $('camStatus');
+  el.innerHTML = html;
+  el.classList.toggle('hidden', !show);
+  el.classList.toggle('inline-flex', show);
+}
+
+function setUi(state, msg) {
+  const vf = $('viewfinder'), badge = $('camBadge'), note = $('camNote');
+  vf.classList.toggle('scanning', state === 'scanning');
+  $('camStart').classList.toggle('hidden', state !== 'idle' && state !== 'error');
+  $('camFrame').classList.toggle('hidden', state === 'idle' || state === 'error' || state === 'starting');
+  $('camShade').classList.toggle('hidden', state === 'scanning' || state === 'success');
+  video.classList.toggle('hidden', state !== 'scanning');
+  snap.classList.toggle('hidden', state !== 'success');
+  idle.classList.toggle('hidden', state === 'scanning' || state === 'success');
+
+  const base = 'rounded-md px-2.5 py-1 text-[11px] font-bold ';
+  const btn = $('scanBtnText');
+
+  if (state === 'idle') {
+    badge.className = base + 'bg-line/70 text-muted'; badge.textContent = 'Kamera mati';
+    note.className = 'text-[11px] text-muted'; note.textContent = 'Kamera belum diaktifkan';
+    setStatus('', false); btn.textContent = 'Mulai pindai';
+  } else if (state === 'starting') {
+    badge.className = base + 'bg-line/70 text-muted'; badge.textContent = 'Menyalakan…';
+    note.className = 'text-[11px] text-muted'; note.textContent = 'Menunggu izin kamera…';
+    setStatus('Menyalakan kamera…'); btn.textContent = 'Batal';
+  } else if (state === 'scanning') {
+    badge.className = base + 'bg-tint text-brand'; badge.textContent = 'Kamera aktif';
+    note.className = 'text-[11px] text-muted'; note.textContent = 'Kamera perangkat · memindai';
+    setStatus('Arahkan barcode ke dalam bingkai'); btn.textContent = 'Hentikan';
+  } else if (state === 'success') {
+    badge.className = base + 'bg-line/70 text-muted'; badge.textContent = 'Kamera mati';
+    note.className = 'text-[11px] text-muted'; note.textContent = 'Pindai selesai · kamera dimatikan';
+    setStatus(ICON_OK + 'Barcode berhasil dibaca'); btn.textContent = 'Pindai lagi';
+  } else if (state === 'error') {
+    badge.className = base + 'bg-warn-bg text-warn'; badge.textContent = 'Kamera tidak tersedia';
+    note.className = 'text-[11px] text-warn'; note.textContent = msg || 'Kamera tidak dapat digunakan';
+    setStatus(ICON_WARN + 'Gunakan pencarian manual di bawah'); btn.textContent = 'Coba lagi';
+  }
+}
+
+function stopCamera() {
+  scanning = false;
+  clearTimeout(timer); timer = null;
+  if (zx) { try { zx.reset(); } catch (e) {} zx = null; }
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+  video.srcObject = null;
+}
+
+function loadZXing() {
+  return new Promise((resolve, reject) => {
+    if (window.ZXing) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+    s.onload = resolve; s.onerror = () => reject(new Error('Gagal memuat pemindai cadangan'));
+    document.head.appendChild(s);
+  });
+}
+
+function onCode(code) {
+  if (!scanning) return;
+  // bekukan frame terakhir supaya tampilan tidak hitam saat kamera dimatikan
+  try {
+    snap.width = video.videoWidth || 640; snap.height = video.videoHeight || 360;
+    snap.getContext('2d').drawImage(video, 0, 0, snap.width, snap.height);
+  } catch (e) {}
+  stopCamera();
+  setUi('success');
+  if (navigator.vibrate) navigator.vibrate(60);
+  $('q').value = code;
+  lookup(code);
+}
+
+async function startCamera() {
+  if (scanning || stream) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setUi('error', 'Browser ini tidak mendukung kamera (butuh HTTPS atau localhost).');
+    return;
+  }
+  setUi('starting');
+  scanning = true;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    if (!scanning) { stopCamera(); return; } // dibatalkan saat menunggu izin
+    video.srcObject = stream;
+    await video.play();
+    setUi('scanning');
+
+    if ('BarcodeDetector' in window) {
+      const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'] });
+      const tick = async () => {
+        if (!scanning) return;
+        try {
+          const found = await detector.detect(video);
+          if (found.length) { onCode(found[0].rawValue); return; }
+        } catch (e) {}
+        timer = setTimeout(tick, 200);
+      };
+      tick();
+    } else {
+      await loadZXing();
+      if (!scanning) return;
+      zx = new ZXing.BrowserMultiFormatReader();
+      zx.decodeFromStream(stream, video, (result) => { if (result) onCode(result.getText()); });
+    }
+  } catch (err) {
+    stopCamera();
+    const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+    const none = err && (err.name === 'NotFoundError' || err.name === 'OverconstrainedError');
+    setUi('error', denied ? 'Izin kamera ditolak. Aktifkan izin kamera di browser.' : none ? 'Kamera tidak ditemukan di perangkat ini.' : (err && err.message) || 'Kamera tidak dapat digunakan');
+  }
+}
+
+function toggleScan() {
+  if (scanning || stream) { stopCamera(); setUi('idle'); }
+  else startCamera();
+}
+
+// ====== Event ======
+$('camStartBtn').addEventListener('click', startCamera);
+$('scanBtn').addEventListener('click', toggleScan);
+$('searchBtn').addEventListener('click', () => { if (scanning) { stopCamera(); setUi('idle'); } lookup($('q').value); });
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('searchBtn').click(); });
+$('result').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pick]');
+  if (b) { $('q').value = b.dataset.pick; lookup(b.dataset.pick); }
+});
+$('chips').innerHTML = CATALOG.slice(0, 4).map((p) =>
+  `<button type="button" data-chip="${esc(p.barcode)}" class="rounded-full border border-line bg-surface px-3 py-1 text-[11px] font-semibold text-ink transition hover:border-brand hover:text-brand">${esc(p.name.split(' ').slice(0, 2).join(' '))}</button>`).join('');
+$('chips').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-chip]');
+  if (!b) return;
+  if (scanning) { stopCamera(); setUi('idle'); }
+  $('q').value = b.dataset.chip; lookup(b.dataset.chip);
+});
+window.addEventListener('pagehide', stopCamera);
+
+setUi('idle');
+renderEmpty();
+</script>
 </body>
 </html>
